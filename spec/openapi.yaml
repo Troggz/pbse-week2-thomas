@@ -1,0 +1,201 @@
+openapi: 3.1.0
+info:
+  title: Badminton Court Booking API
+  version: 0.1.0
+  description: |
+    Book a badminton court for a time slot: browse which courts are free, book
+    one for a slot and pay for it, then check in and play. Used by customers,
+    court staff, a check-in scanner at the hall entrance, and lobby display
+    screens.
+
+    All money amounts are whole numbers in the smallest unit of the currency
+    (for example 50000 means Rp 50,000). All timestamps are RFC 3339 with a
+    timezone offset. Clients MUST ignore response fields they do not recognise,
+    and MUST NOT crash when they see a status value they do not know.
+
+servers:
+  - url: https://api.example.com/v1
+    description: Production - does not exist yet. That is Meeting 3.
+  - url: http://localhost:8080/v1
+    description: Local development
+
+paths:
+  /courts:
+    get:
+      operationId: listCourts
+      summary: List courts in a hall
+      description: |
+        Returns all courts. Unavailable courts are included with isAvailable
+        false, so a client can show them greyed out instead of hiding them.
+      parameters:
+        - name: available
+          in: query
+          required: false
+          schema: { type: boolean }
+          description: Filter to available or unavailable courts only.
+      responses:
+        '200':
+          description: The list of courts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Court'
+
+  /bookings:
+    post:
+      operationId: bookCourt
+      summary: Book one court for a time slot
+      description: |
+        Reserves a free court for the caller and charges the slot fee. This is
+        the operation that must not happen twice - see the Idempotency-Key
+        header below.
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+          description: |
+            Idempotency-Key, a version-4 UUID with hyphens. Created by the
+            client when the customer taps Book, and reused unchanged for every
+            retry of that same booking. Required on POST /bookings; ignored on
+            every other operation. The server keeps each key for 24 hours; a
+            key reused after that is treated as new. Reusing a key with a
+            different body returns 409 idempotency-key-reuse.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewBooking'
+      responses:
+        '201':
+          description: Booking created, or the replayed original response.
+          headers:
+            Location:
+              schema: { type: string }
+              description: URI of the created booking.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          description: Well-formed but semantically invalid.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+  /bookings/{id}:
+    get:
+      operationId: getBooking
+      summary: Fetch one booking
+      description: Returns a single booking by its id.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+          description: The booking id, for example bkg_51Fa.
+      responses:
+        '200':
+          description: The booking.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Booking'
+        '404':
+          description: No booking with that id.
+          content:
+            application/problem+json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+components:
+  schemas:
+    Court:
+      type: object
+      required: [id, hall, isAvailable]
+      properties:
+        id:
+          type: string
+          pattern: '^crt_[A-Za-z0-9]{3,}$'
+          example: crt_3Bn
+        hall:
+          type: string
+          description: Which building and hall this court sits in.
+          example: GOR Klebengan, Hall B
+        isAvailable:
+          type: boolean
+          description: |
+            False when the court is currently booked, closed, or blocked for
+            maintenance.
+          example: true
+
+    Booking:
+      type: object
+      required: [id, courtId, status, amount, currency]
+      properties:
+        id:
+          type: string
+          example: bkg_51Fa
+        courtId:
+          type: string
+          example: crt_3Bn
+        status:
+          type: string
+          enum: [reserved, checked_in, completed, cancelled, no_show]
+          description: |
+            Clients MUST treat a value they do not recognise as 'in progress'
+            and MUST NOT crash on it.
+          example: reserved
+        slotStart:
+          type: string
+          format: date-time
+          description: Start of the booked slot, RFC 3339 with timezone offset.
+          example: '2026-09-01T19:00:00+07:00'
+        amount:
+          type: integer
+          description: Slot fee, in the smallest unit of the currency.
+          example: 50000
+        currency:
+          type: string
+          example: IDR
+
+    NewBooking:
+      type: object
+      required: [courtId]
+      properties:
+        courtId:
+          type: string
+          description: The court the customer is booking.
+          example: crt_3Bn
+        slotStart:
+          type: string
+          format: date-time
+          description: Start of the requested slot, RFC 3339 with timezone.
+          example: '2026-09-01T19:00:00+07:00'
+
+    Problem:
+      type: object
+      required: [type, title, status]
+      properties:
+        type:
+          type: string
+          format: uri
+          example: 'https://api.example.com/problems/court-unavailable'
+        title: { type: string, example: Court is no longer available }
+        status: { type: integer, example: 409 }
+        detail: { type: string }
+        instance: { type: string }
+
+  responses:
+    Conflict:
+      description: The request was valid but refused by a business rule.
+      content:
+        application/problem+json:
+          schema:
+            $ref: '#/components/schemas/Problem'

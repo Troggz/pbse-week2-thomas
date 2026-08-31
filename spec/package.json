@@ -1,0 +1,14 @@
+{
+  "name": "pbse-week2-locker-rental",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "lint": "redocly lint openapi.yaml",
+    "docs": "redocly build-docs openapi.yaml -o docs.html",
+    "mock": "prism mock openapi.yaml"
+  },
+  "devDependencies": {
+    "@redocly/cli": "latest",
+    "@stoplight/prism-cli": "5.15.11"
+  }
+}
